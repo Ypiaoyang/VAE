@@ -45,8 +45,8 @@ else:
 if len(cluster_labels) == adata.shape[0]:
     print(f"  ✓ 聚类结果与源数据点数匹配")
     # 将聚类标签添加到adata对象并转换为category类型
-    adata.obs['cluster'] = cluster_labels.astype(str)
-    adata.obs['cluster'] = adata.obs['cluster'].astype('category')
+    adata.obs['predicted_cluster'] = cluster_labels.astype(str)
+    adata.obs['predicted_cluster'] = adata.obs['predicted_cluster'].astype('category')
 else:
     print(f"  ✗ 聚类结果与源数据点数不匹配: {len(cluster_labels)} vs {adata.shape[0]}")
     # 如果不匹配，可能是因为使用了合成数据进行训练
@@ -64,16 +64,16 @@ else:
     adata.obs['cluster'] = adata.obs['cluster'].astype('category')
 
 print(f"\n聚类结果信息:")
-print(f"  簇数量: {adata.obs['cluster'].nunique()}")
+print(f"  簇数量: {adata.obs['predicted_cluster'].nunique()}")
 print(f"  每个簇的大小:")
-for cluster, count in adata.obs['cluster'].value_counts().items():
+for cluster, count in adata.obs['predicted_cluster'].value_counts().items():
     print(f"    簇 {cluster}: {count} spots ({count/adata.shape[0]*100:.1f}%)")
 
 # 3. 聚类质量评估
 print("\n步骤 3: 聚类质量评估...")
 
 # 导入评估指标
-from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score, normalized_mutual_info_score
 
 print(f"\n内部评估指标:")
 
@@ -89,6 +89,23 @@ print(f"  戴维斯-布隆丁指数: {davies_bouldin:.4f} (越小越好)")
 calinski_harabasz = calinski_harabasz_score(latent, cluster_labels)
 print(f"  卡利斯基-哈拉巴斯指数: {calinski_harabasz:.4f} (越大越好)")
 
+# 检查是否有真实标签用于外部评估
+real_labels = None
+if 'cluster' in adata.obs.columns:
+    real_labels = adata.obs['cluster'].cat.codes.values
+    print(f"\n外部评估指标 (与真实标签 'cluster' 比较):")
+    # 归一化互信息 (NMI)
+    nmi = normalized_mutual_info_score(real_labels, cluster_labels)
+    print(f"  归一化互信息 (NMI): {nmi:.4f} (越大越好)")
+elif 'leiden' in adata.obs.columns:
+    real_labels = adata.obs['leiden'].cat.codes.values
+    print(f"\n外部评估指标 (与真实标签 'leiden' 比较):")
+    # 归一化互信息 (NMI)
+    nmi = normalized_mutual_info_score(real_labels, cluster_labels)
+    print(f"  归一化互信息 (NMI): {nmi:.4f} (越大越好)")
+else:
+    print(f"\n未找到真实标签，跳过外部评估指标")
+
 # 4. 空间一致性评估
 print("\n步骤 4: 空间一致性评估...")
 
@@ -98,9 +115,9 @@ plt.figure(figsize=(12, 6))
 # 空间分布
 plt.subplot(1, 2, 1)
 coords = adata.obsm['spatial']
-colors = adata.obs['cluster'].cat.codes.values
+colors = adata.obs['predicted_cluster'].cat.codes.values
 scatter = plt.scatter(coords[:, 0], coords[:, 1], c=colors, cmap='viridis', s=20)
-plt.colorbar(scatter, ticks=range(len(adata.obs['cluster'].cat.categories)), label='Cluster')
+plt.colorbar(scatter, ticks=range(len(adata.obs['predicted_cluster'].cat.categories)), label='Predicted Cluster')
 plt.title('聚类结果空间分布')
 plt.xlabel('X坐标')
 plt.ylabel('Y坐标')
@@ -109,7 +126,7 @@ plt.ylabel('Y坐标')
 plt.subplot(1, 2, 2)
 sc.pp.neighbors(adata, use_rep='X')
 sc.tl.umap(adata)
-sc.pl.umap(adata, color='cluster', show=False, ax=plt.gca())
+sc.pl.umap(adata, color='predicted_cluster', show=False, ax=plt.gca())
 plt.title('聚类结果UMAP分布')
 
 plt.tight_layout()
@@ -143,12 +160,12 @@ def spatial_continuity_score(adata, cluster_key):
     
     return np.mean(continuity_scores)
 
-# 确保cluster是分类类型
-adata.obs['cluster'] = adata.obs['cluster'].astype('category')
+# 确保predicted_cluster是分类类型
+adata.obs['predicted_cluster'] = adata.obs['predicted_cluster'].astype('category')
 
 # 计算空间连续性得分
 if 'spatial' in adata.obsm:
-    continuity_score = spatial_continuity_score(adata, 'cluster')
+    continuity_score = spatial_continuity_score(adata, 'predicted_cluster')
     print(f"  空间连续性得分: {continuity_score:.4f} (越接近1越好)")
 else:
     print(f"  ✗ 无法计算空间连续性得分，缺少空间坐标")
@@ -161,12 +178,12 @@ if adata.X.shape[1] > latent.shape[1]:  # 确保有基因表达数据
     print(f"  进行差异表达分析...")
     
     # 计算每个簇的标志基因
-    sc.tl.rank_genes_groups(adata, 'cluster', method='wilcoxon')
+    sc.tl.rank_genes_groups(adata, 'predicted_cluster', method='wilcoxon')
     
     # 保存标志基因
     de_genes = {}
-    for cluster in adata.obs['cluster'].cat.categories:
-        cluster_idx = adata.obs['cluster'].cat.categories.get_loc(cluster)
+    for cluster in adata.obs['predicted_cluster'].cat.categories:
+        cluster_idx = adata.obs['predicted_cluster'].cat.categories.get_loc(cluster)
         genes = adata.uns['rank_genes_groups']['names'][cluster][:10]  # 前10个标志基因
         de_genes[cluster] = genes.tolist()
     
@@ -193,9 +210,9 @@ report_lines.append(f"- Spots数量: {adata.shape[0]}\n")
 report_lines.append(f"- Genes数量: {adata.shape[1]}\n")
 
 report_lines.append("\n## 聚类结果信息\n")
-report_lines.append(f"- 簇数量: {adata.obs['cluster'].nunique()}\n")
+report_lines.append(f"- 簇数量: {adata.obs['predicted_cluster'].nunique()}\n")
 report_lines.append(f"- 每个簇的大小:\n")
-for cluster, count in adata.obs['cluster'].value_counts().items():
+for cluster, count in adata.obs['predicted_cluster'].value_counts().items():
     report_lines.append(f"  - 簇 {cluster}: {count} spots ({count/adata.shape[0]*100:.1f}%)\n")
 
 report_lines.append("\n## 聚类质量评估\n")
@@ -206,6 +223,12 @@ report_lines.append(f"- 卡利斯基-哈拉巴斯指数: {calinski_harabasz:.4f}
 
 if 'spatial' in adata.obsm:
     report_lines.append(f"- 空间连续性得分: {continuity_score:.4f} (越接近1越好)\n")
+
+# 添加外部评估指标（如果有真实标签）
+if 'real_labels' in locals():
+    report_lines.append("\n### 外部评估指标\n")
+    true_label_col = 'cluster' if 'cluster' in adata.obs.columns else 'leiden'
+    report_lines.append(f"- 归一化互信息 (NMI, 与真实标签 '{true_label_col}' 比较): {nmi:.4f} (越大越好)\n")
 
 report_lines.append("\n## 结果解释\n")
 report_lines.append("### 轮廓系数\n")
@@ -250,3 +273,16 @@ print(f"  • 聚类质量评估报告: {report_file}")
 print(f"  • 聚类质量可视化: {output_dir / 'cluster_quality_evaluation.png'}")
 if adata.X.shape[1] > latent.shape[1]:
     print(f"  • 标志基因可视化: {output_dir / 'marker_genes.png'}")
+
+# 输出NMI结果（如果计算了的话）
+if 'real_labels' in locals():
+    print(f"\n【NMI评估结果】:")
+    true_label_col = 'cluster' if 'cluster' in adata.obs.columns else 'leiden'
+    print(f"  • 归一化互信息 (NMI): {nmi:.4f}")
+    print(f"  • 比较的真实标签列: {true_label_col}")
+    if nmi > 0.7:
+        print(f"  • 评估: 聚类结果与真实标签高度一致")
+    elif nmi > 0.5:
+        print(f"  • 评估: 聚类结果与真实标签中度一致")
+    else:
+        print(f"  • 评估: 聚类结果与真实标签一致性较低")

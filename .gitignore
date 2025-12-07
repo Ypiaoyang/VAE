@@ -1,13 +1,29 @@
-# Virtual environment
-.venv/
-
-# Python cache
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 
-# IDE
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Data files
+data/
+*.h5ad
+
+# Output files and results
+outputs/
+*.png
+*.npy
+*.pt
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# IDE and editor
 .vscode/
 .idea/
 *.swp
@@ -18,21 +34,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Logs
-logs/
-*.log
-
-# Output files
-outputs/
-*.npy
-*.png
-*.h5ad
-
-# Temporary files
-*.tmp
-*.temp
-
-# Environment variables
-.env
-.env.local
-.env.*.local
+# Test files
+test_*.py
